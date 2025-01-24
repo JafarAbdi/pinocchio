@@ -1,13 +1,25 @@
-[project]
-name = "pinocchio"
-version = "3.3.1"
+[workspace]
 description = "A fast and flexible implementation of Rigid Body Dynamics algorithms and their analytical derivatives"
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 channels = ["conda-forge"]
 license = "BSD-2-Clause"
 license-file = "LICENSE"
+preview = ["pixi-build"]
 
-[build-dependencies]
+[package]
+name = "pinocchio"
+version = "3.3.1"
+
+[package.build]
+
+backend = { name = "pixi-build-cmake", version = "*" }
+
+channels = [
+  "https://prefix.dev/pixi-build-backends",
+  "https://prefix.dev/conda-forge",
+]
+
+[package.build-dependencies]
 ccache = ">=4.9.1"
 cmake = ">=3.10"
 cxx-compiler = ">=1.7.0"
@@ -25,8 +37,22 @@ urdfdom = ">=4.0"
 meshcat-python = ">=0.3"
 matplotlib = ">=3.9.2"
 
+[package.host-dependencies]
+libboost-devel = ">=1.80.0"
+libboost-python-devel = ">=1.80.0"
+eigen = ">=3.4.0"
+numpy = ">=1.22.0"
+python = "3.11.*"
+eigenpy = ">=3.7.0"
+urdfdom = ">=4.0"
+meshcat-python = ">=0.3"
+matplotlib = ">=3.9.2"
+casadi = ">=3.6.7"
+hpp-fcl = ">=2.4"
+
 [activation]
 scripts = ["development/scripts/pixi/activation.sh"]
+env = { PINOCCHIO_CASADI_SUPPORT = "ON", PINOCCHIO_COLLISION_SUPPORT = "ON" }
 
 [target.win-64.activation]
 scripts = ["development/scripts/pixi/activation.bat"]
@@ -166,7 +192,7 @@ activation = { scripts = ["development/scripts/pixi/activation_clang.sh"] }
 dependencies = { clangxx = "*" }
 
 [environments]
-default = { features = ["py312"], solve-group = "py312" }
+default = { features = ["collision", "casadi", "py312"], solve-group = "py312" }
 clang = { features = ["clang", "py312"] }
 lint = { features = ["lint"], solve-group = "py312" }
 collision = { features = ["collision", "py312"], solve-group = "py312" }
