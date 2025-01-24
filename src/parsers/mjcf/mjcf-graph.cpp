@@ -6,6 +6,82 @@
 #include "pinocchio/multibody/model.hpp"
 #include "pinocchio/algorithm/contact-info.hpp"
 
+namespace {
+namespace pt = boost::property_tree;
+namespace fs = boost::filesystem;
+pt::ptree readXmlFile(const fs::path& filePath) {
+    pt::ptree tree;
+    std::ifstream file(filePath.string());
+    if (!file) {
+        throw std::runtime_error("Could not open file: " + filePath.string());
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    pt::read_xml(buffer, tree);
+    return tree;
+}
+
+void updateMeshPaths(pt::ptree& tree, const fs::path& basePath) {
+    for (auto& child : tree) {
+        // Check if the tag is <mesh> and has a 'file' attribute
+        if (child.first == "mesh") {
+
+            // Check if the 'file' attribute exists
+            if (auto fileAttr = child.second.get_optional<std::string>("<xmlattr>.file")) {
+                std::string meshFile = *fileAttr;
+                fs::path fullPath = basePath / meshFile;
+
+                // Update the 'file' attribute
+                child.second.put("<xmlattr>.file", fullPath.string());
+            }
+        } else if (!child.second.empty()) {
+            // Recursively process child nodes
+            updateMeshPaths(child.second, basePath);
+        }
+    }
+}
+
+// Merge the content of an included XML tree into the main XML tree
+void mergeXmlTrees(pt::ptree& mainTree, const pt::ptree& includedTree, const std::string& tagName) {
+    for (const auto& child : includedTree.get_child(tagName)) {
+        mainTree.add_child(child.first, child.second);
+    }
+}
+
+// Recursively process <include> tags in the XML tree
+void processIncludes(pt::ptree& tree, const fs::path& basePath) {
+    for (auto it = tree.begin(); it != tree.end(); ) {
+        if (it->first == "include") {
+            // Check if the 'file' attribute exists
+            if (auto fileAttr = it->second.get_optional<std::string>("<xmlattr>.file")) {
+                std::string filePath = *fileAttr;
+                fs::path fullPath = basePath / filePath;
+
+                // Read the included XML file
+                auto includedTree = readXmlFile(fullPath);
+
+                // Update mesh paths in the included tree
+                updateMeshPaths(includedTree, fullPath.parent_path());
+
+                // Merge the included content into the main tree
+                mergeXmlTrees(tree, includedTree, "mujoco");
+
+                // Remove the <include> tag after merging
+                it = tree.erase(it);
+            } else {
+                PINOCCHIO_THROW_PRETTY(std::runtime_error, "Missing 'file' attribute in <include> tag");
+            }
+        } else {
+            // Recursively process child nodes
+            if (!it->second.empty()) {
+                processIncludes(it->second, basePath);
+            }
+            ++it;
+        }
+    }
+}
+} // namespace
+
 namespace pinocchio
 {
   namespace mjcf
@@ -899,6 +975,13 @@ namespace pinocchio
       void MjcfGraph::parseGraphFromXML(const std::string & xmlStr)
       {
         boost::property_tree::read_xml(xmlStr, pt);
+        // Recursively process includes in the entire XML tree
+        if (pt.get_child_optional("mujoco")) {
+            auto basePath = fs::path(xmlStr).parent_path();
+            auto& mujocoTree = pt.get_child("mujoco");
+            processIncludes(mujocoTree, basePath);
+        }
+        // boost::property_tree::write_xml(std::cout, pt);
         parseGraph();
       }
 
@@ -1021,6 +1104,8 @@ namespace pinocchio
 
         if (!composite)
         {
+          if(currentBody.jointChildren.empty())
+            PINOCCHIO_THROW_PRETTY(std::invalid_argument, "Composite joint needs at least one child");
           addSoloJoint(currentBody.jointChildren.at(0), currentBody, bodyInJoint);
         }
         else
@@ -1203,6 +1288,10 @@ namespace pinocchio
       {
         urdfVisitor.setName(modelName);
         // get name and inertia of first root link
+        if(bodiesList.empty())
+        {
+          PINOCCHIO_THROW_PRETTY(std::runtime_error, modelName + " has no root link");
+        }
         std::string rootLinkName = bodiesList.at(0);
         MjcfBody rootBody = mapOfBodies.find(rootLinkName)->second;
         if (rootBody.jointChildren.size() == 0)
