@@ -9,48 +9,36 @@
 namespace {
 namespace pt = boost::property_tree;
 namespace fs = boost::filesystem;
-pt::ptree readXmlFile(const fs::path& filePath) {
-    pt::ptree tree;
-    std::ifstream file(filePath.string());
-    if (!file) {
-        throw std::runtime_error("Could not open file: " + filePath.string());
-    }
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    pt::read_xml(buffer, tree);
-    return tree;
-}
-
 void updateMeshPaths(pt::ptree& tree, const fs::path& basePath) {
-    for (auto& child : tree) {
+    for (auto& [key, child] : tree) {
         // Check if the tag is <mesh> and has a 'file' attribute
-        if (child.first == "mesh") {
+        if (key == "mesh") {
 
             // Check if the 'file' attribute exists
-            if (auto fileAttr = child.second.get_optional<std::string>("<xmlattr>.file")) {
-                std::string meshFile = *fileAttr;
-                fs::path fullPath = basePath / meshFile;
-
+            if (auto fileAttr = child.get_optional<std::string>("<xmlattr>.file")) {
                 // Update the 'file' attribute
-                child.second.put("<xmlattr>.file", fullPath.string());
+                child.put("<xmlattr>.file", (basePath / *fileAttr).string());
             }
-        } else if (!child.second.empty()) {
+        } else if (!child.empty()) {
             // Recursively process child nodes
-            updateMeshPaths(child.second, basePath);
+            updateMeshPaths(child, basePath);
         }
     }
 }
 
 // Merge the content of an included XML tree into the main XML tree
 void mergeXmlTrees(pt::ptree& mainTree, const pt::ptree& includedTree, const std::string& tagName) {
-    for (const auto& child : includedTree.get_child(tagName)) {
-        mainTree.add_child(child.first, child.second);
+    if (auto includedChild = includedTree.get_child_optional(tagName)) {
+        for (const auto& [key, child] : *includedChild) {
+            mainTree.add_child(key, child);
+        }
     }
 }
 
 // Recursively process <include> tags in the XML tree
 void processIncludes(pt::ptree& tree, const fs::path& basePath) {
-    for (auto it = tree.begin(); it != tree.end(); ) {
+    auto it = tree.begin();
+    while (it != tree.end()) {
         if (it->first == "include") {
             // Check if the 'file' attribute exists
             if (auto fileAttr = it->second.get_optional<std::string>("<xmlattr>.file")) {
@@ -58,7 +46,8 @@ void processIncludes(pt::ptree& tree, const fs::path& basePath) {
                 fs::path fullPath = basePath / filePath;
 
                 // Read the included XML file
-                auto includedTree = readXmlFile(fullPath);
+                pt::ptree includedTree;
+                boost::property_tree::read_xml(fullPath.string(), includedTree);
 
                 // Update mesh paths in the included tree
                 updateMeshPaths(includedTree, fullPath.parent_path());
